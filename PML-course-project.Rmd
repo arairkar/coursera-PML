@@ -1,0 +1,208 @@
+---
+title: "Practical Machine Learning Project-Coursera"
+author: arairkar
+date: 6/1/2019
+output: html_document
+keep_md: yes
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results = "asis", warning = FALSE, 
+                      message = FALSE)
+```
+
+##Goal: Build a predictive model to predict quality of weight lifting exercises 
+
+##Analysis Method
+
+1. Download and load the data into data frames
+
+2. Clean data by analyzing columns that are not relevant to predictive value
+for the 'classe' response
+
+3. Partition training data into sub training and testing set and use testing 
+data set for validation
+
+4. Build different models and evaluate their predictive capabilities on the
+sub-training set and pick the best model according to prediction accuracy
+
+5. Build newer model on the whole training set from the best picked model
+
+6. Use new model to predict the testing set 
+
+Load libraries, download training and test data
+
+Set seed for reproducibility
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+rm(list=ls())
+library(caret)
+library(ElemStatLearn)
+library(e1071)
+library(ggplot2)
+library(AppliedPredictiveModeling)
+library(rpart)
+library(knitr)
+library(kernlab)
+library(lubridate)
+library(rattle)
+set.seed(1234)
+```
+# Getting data 
+Get data from URL's and import them into data frames in R
+Inspect the dimensions and structure of the data
+
+
+ ```{r,echo=FALSE,message=FALSE,warning=FALSE}
+ trainURL <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+ testURL <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv" 
+ trainingfile <- download.file(trainURL,destfile="./training.csv")
+ testingfile <- download.file(testURL,destfile = "./testing.csv")
+``` 
+
+ 
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+        trainingdt <- read.csv("./training.csv")
+        testingdt <- read.csv("./testing.csv")
+        dim(trainingdt); dim(testingdt)
+ #str(trainingdt)
+ ```
+
+ ##Initial exploration of the data.
+
+The training data set has 19622 rows and 160 columns and the testing set 
+has 20 rows & 160 columns
+
+Although the output of Str(trainingdt) is not printed to the html to
+conserve space, inspection of the training data suggests that there are many 
+columns with 'NA' values
+
+Also the first 7 columns are identifiers like names and row-index
+These 7 columns have no predictive value to the classe variable
+
+##Cleaning data
+
+The training data set will be cleaned by removing those columns that have 75%
+missing or NA values as it will be misleading to add them to the predictive 
+model
+
+The first 7 columns will also be removed 
+The training data set will then be inspected to see if there are any columns
+with near zero variance
+
+Since there are no columns with near zero variance, we can proceed with 
+evaluating predictive models
+
+The testing data set will also be cleaned by removing the same columns as the 
+training data set
+
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+
+rmcols <- which(colSums(is.na(trainingdt) | trainingdt == "")
+                >0.75*nrow(trainingdt))
+trainingdt <- trainingdt[,-rmcols]
+trainingdt <- trainingdt[,-c(1:7)]
+nearzv <- nearZeroVar(trainingdt)
+dim(nearzv)
+
+testingdt <- testingdt[,-rmcols]
+testingdt <- testingdt[,-c(1:7)]
+
+```
+##Analysis
+
+First partition the training data set 70-30 to evaluate best models
+we will then use the 70% of the training set to build and evaluate predictive 
+models of 3 types
+
+1. Recurssive partitiong
+
+2. Gradient boosting
+
+3. Random Forest
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+
+train1 <- createDataPartition(trainingdt$classe, p=0.7,list = FALSE)
+trainset <- trainingdt[train1,]
+testset <- trainingdt[-train1,]
+
+```
+## Recursive Partitioning
+
+A recursive partitining model is built to predict the classe response
+
+The fancyRpartplot() function from the rpart package is used to view the 
+decision tree
+
+The rpart model is evaluated with the test part of the training data set and 
+yields a prediction accuracy of 68.7%
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+rpartmodel <- rpart(classe~.,data=trainset,method="class")
+fancyRpartPlot(rpartmodel)
+rpartpred <- predict(rpartmodel,newdata=testset,type="class")
+confMatrpart <- confusionMatrix(rpartpred,testset$classe)
+confMatrpart$overall[1]
+
+```
+#Gradient Boosting method
+
+A GBM model is built to predict the classe response
+
+The model is evaluated with the test part of the training data set and yields a
+prediction accuracy of 96.6%
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+gbmmodel <- train(classe~.,data=trainset,method="gbm",verbose=FALSE)
+gbmpred <- predict(gbmmodel,newdata=testset)
+confMatgbm <- confusionMatrix(gbmpred,testset$classe)
+confMatgbm$overall[1]
+```
+
+#Random Forest method with 3 fold cross-validation
+
+A random forest model is built to predict the classe variable
+
+The model is evaluated with the test part of the training data set and yields a
+prediction accuracy of >99%
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+fit_control <- trainControl (method = "cv", number = 3)
+rfmodel <- train(classe~.,data=trainset,method="rf",trcontrol=fit_control)
+rfpred <- predict(rfmodel,newdata=testset)
+confMatrf <- confusionMatrix(rfpred,testset$classe)
+confMatrf$overall[1]
+
+```
+
+#Final model selection
+
+It is clear that the random forest method gives the highest prediction accuracy amongst the 3 methods. 
+
+Thus a final model is built using the random forest method on the original 
+training set and is used to predict the original testing set.
+Output of the predictions along with the problemID column of the testing 
+dataset are written to a csv file for submission
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+        fit_control <- trainControl (method = "cv", number = 3)
+        finrfmodel <- train(classe~.,data=trainingdt,method="rf",
+                                        trcontrol=fit_control)
+        finpred <- predict(finrfmodel,newdata=testingdt)
+        Preddf <- cbind(testingdt$problem_id,as.character(finpred))
+        colnames(Preddf) <- c("Testing_problemID","Predicted_Classe")
+        write.csv(Preddf,file="./PredictedClasse.csv",row.names = FALSE)
+```
+
+#Conclusions
+
+A random forest model was found to have the most prediction accuracy with a 
+subset of the training data. Thus the prediction of the exercise class was done with a random forest model built with the full training set. 
+
+The output of the predictions are written to a csv file and presented for
+evaluation.
+
+
